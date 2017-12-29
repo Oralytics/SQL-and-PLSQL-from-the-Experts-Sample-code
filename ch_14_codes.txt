@@ -1,0 +1,653 @@
+conn / as sysdba
+grant execute on dbms_crypto to scott
+/
+create public synonym dbms_crypto for sys.dbms_crypto
+/
+conn scott/tiger
+CREATE OR REPLACE FUNCTION get_key 
+(
+   p_length IN PLS_INTEGER
+)
+   RETURN RAW
+IS
+   l_ret   RAW (4000);
+BEGIN
+   l_ret := dbms_crypto.randombytes (p_length);
+   RETURN l_ret;
+END;
+/
+
+DECLARE
+   l_enc   RAW(2000);
+   l_in    RAW(2000);
+   l_key   RAW(2000);
+BEGIN
+   l_enc :=
+      dbms_crypto.encrypt (
+         src      => l_in,
+         KEY      => l_key,
+         typ      =>   dbms_crypto.pad_zero
+                       + dbms_crypto.encrypt_aes128
+                       + dbms_crypto.chain_cfb
+    );
+END;
+/
+
+DECLARE
+   l_enc   RAW(2000);
+   l_in    RAW(2000);
+   l_key   RAW(2000);
+BEGIN
+   l_enc :=
+      dbms_crypto.encrypt (
+         src      => l_in,
+         KEY      => l_key,
+         typ      => dbms_crypto.des_cbc_pkcs5
+      );
+END;
+/
+
+CREATE OR REPLACE FUNCTION get_enc_val (
+   p_in_val   IN   RAW,
+   p_key      IN   RAW,
+   p_iv       IN   RAW := NULL
+)
+   RETURN RAW
+IS
+   l_enc_val   RAW (4000);
+BEGIN
+   l_enc_val :=
+      dbms_crypto.encrypt (
+          src      => p_in_val,
+          KEY      => p_key,
+          iv       => p_iv,
+          typ      =>   dbms_crypto.encrypt_aes128
+                      + dbms_crypto.chain_cbc
+                      + dbms_crypto.pad_pkcs5
+      );
+   RETURN l_enc_val;
+END;
+/
+
+CREATE OR REPLACE FUNCTION get_enc_val (
+   p_in_val      IN   VARCHAR2,
+   p_key         IN   VARCHAR2,
+   p_algorithm   IN   VARCHAR2 := 'AES128',
+   p_iv          IN   VARCHAR2 := NULL
+)
+   RETURN VARCHAR2
+IS
+   l_enc_val    RAW (4000);
+   l_enc_algo   PLS_INTEGER;
+   l_in         RAW (4000);
+   l_key        RAW (4000);
+   l_ret        VARCHAR2 (4000);
+BEGIN
+   l_enc_algo :=
+      CASE p_algorithm
+         WHEN 'DES'
+            THEN dbms_crypto.encrypt_des
+         WHEN '3DES_2KEY'
+            THEN dbms_crypto.encrypt_3des_2key
+         WHEN '3DES'
+            THEN dbms_crypto.encrypt_3des
+         WHEN 'AES128'
+            THEN dbms_crypto.encrypt_aes128
+         WHEN 'AES192'
+            THEN dbms_crypto.encrypt_aes192
+         WHEN 'AES256'
+            THEN dbms_crypto.encrypt_aes256
+         WHEN 'RC4'
+            THEN dbms_crypto.encrypt_rc4
+      END;
+   l_in := utl_i18n.string_to_raw (p_in_val, 'AL32UTF8');
+   l_key := utl_i18n.string_to_raw (p_key, 'AL32UTF8');
+   l_enc_val :=
+      dbms_crypto.encrypt (src      => l_in,
+                           KEY      => l_key,
+                           typ      =>   l_enc_algo
+                                       + dbms_crypto.chain_cbc
+                                       + dbms_crypto.pad_pkcs5
+                          );
+   l_ret := RAWTOHEX (l_enc_val);
+   RETURN l_ret;
+END;
+/
+
+SELECT get_enc_val ('Test','1234567890123456')
+FROM dual; 
+
+CREATE OR REPLACE FUNCTION get_dec_val (
+   p_in_val      IN   VARCHAR2,
+   p_key         IN   VARCHAR2,
+   p_algorithm   IN   VARCHAR2 := 'AES128'
+)
+   RETURN VARCHAR2
+IS
+   l_dec_val    RAW (4000);
+   l_enc_algo   PLS_INTEGER;
+   l_in         RAW (4000);
+   l_key        RAW (4000);
+   l_ret        VARCHAR2 (4000);
+BEGIN
+   l_enc_algo :=
+      CASE p_algorithm
+         WHEN 'DES'
+            THEN dbms_crypto.encrypt_des
+         WHEN '3DES_2KEY'
+            THEN dbms_crypto.encrypt_3des_2key
+         WHEN '3DES'
+            THEN dbms_crypto.encrypt_3des
+         WHEN 'AES128'
+            THEN dbms_crypto.encrypt_aes128
+         WHEN 'AES192'
+            THEN dbms_crypto.encrypt_aes192
+         WHEN 'AES256'
+            THEN dbms_crypto.encrypt_aes256
+         WHEN 'RC4'
+            THEN dbms_crypto.encrypt_rc4
+      END;
+   l_in := hextoraw(p_in_val);
+   l_key := utl_i18n.string_to_raw (p_key, 'AL32UTF8');
+   l_dec_val :=
+      dbms_crypto.decrypt (src      => l_in,
+                           KEY      => l_key,
+                           typ      =>   l_enc_algo
+                                       + dbms_crypto.chain_cbc
+                                       + dbms_crypto.pad_pkcs5
+                          );
+   l_ret := utl_i18n.raw_to_char (l_dec_val, 'AL32UTF8');
+   RETURN l_ret;
+END;
+/
+
+SELECT get_dec_val ('2137F30B29BE026DFE7D61A194BC34DD', '1234567890123456')
+FROM DUAL;
+
+CREATE OR REPLACE FUNCTION get_enc_val (
+   p_in_val      IN   VARCHAR2,
+   p_key         IN   VARCHAR2,
+   p_iv          IN   VARCHAR2 := NULL,
+   p_algorithm   IN   VARCHAR2 := 'AES128'
+)
+   RETURN VARCHAR2
+IS
+   l_enc_val    RAW (4000);
+   l_enc_algo   PLS_INTEGER;
+   l_in         RAW (4000);
+   l_key        RAW (4000);
+   l_iv         RAW (4000);
+   l_ret        VARCHAR2 (4000);
+BEGIN
+   l_enc_algo :=
+      CASE p_algorithm
+         WHEN 'DES'
+            THEN dbms_crypto.encrypt_des
+         WHEN '3DES_2KEY'
+            THEN dbms_crypto.encrypt_3des_2key
+         WHEN '3DES'
+            THEN dbms_crypto.encrypt_3des
+         WHEN 'AES128'
+            THEN dbms_crypto.encrypt_aes128
+         WHEN 'AES192'
+            THEN dbms_crypto.encrypt_aes192
+         WHEN 'AES256'
+            THEN dbms_crypto.encrypt_aes256
+         WHEN 'RC4'
+            THEN dbms_crypto.encrypt_rc4
+      END;
+   l_in := utl_i18n.string_to_raw (p_in_val, 'AL32UTF8');
+   l_key := utl_i18n.string_to_raw (p_key, 'AL32UTF8');
+   l_iv := utl_i18n.string_to_raw (p_iv, 'AL32UTF8');
+   l_enc_val :=
+      dbms_crypto.encrypt (
+         src      => l_in,
+         KEY      => l_key,
+         iv       => l_iv,
+         typ      =>   l_enc_algo
+                       + dbms_crypto.chain_cbc
+                       + dbms_crypto.pad_pkcs5
+         );
+   l_ret := RAWTOHEX (l_enc_val);
+   RETURN l_ret;
+END;
+/
+
+CREATE OR REPLACE FUNCTION get_dec_val (
+   p_in_val      IN   VARCHAR2,
+   p_key         IN   VARCHAR2,
+   p_iv          IN   VARCHAR2 := NULL,
+   p_algorithm   IN   VARCHAR2 := 'AES128'
+)
+   RETURN VARCHAR2
+IS
+   l_dec_val    RAW (4000);
+   l_enc_algo   PLS_INTEGER;
+   l_in         RAW (4000);
+   l_key        RAW (4000);
+   l_iv         RAW (4000);
+   l_ret        VARCHAR2 (4000);
+BEGIN
+   l_enc_algo :=
+      CASE p_algorithm
+         WHEN 'DES'
+            THEN dbms_crypto.encrypt_des
+         WHEN '3DES_2KEY'
+            THEN dbms_crypto.encrypt_3des_2key
+         WHEN '3DES'
+            THEN dbms_crypto.encrypt_3des
+         WHEN 'AES128'
+            THEN dbms_crypto.encrypt_aes128
+         WHEN 'AES192'
+            THEN dbms_crypto.encrypt_aes192
+         WHEN 'AES256'
+            THEN dbms_crypto.encrypt_aes256
+         WHEN 'RC4'
+            THEN dbms_crypto.encrypt_rc4
+      END;
+   l_in := hextoraw(p_in_val);
+   l_key := utl_i18n.string_to_raw (p_key, 'AL32UTF8');
+   l_iv := utl_i18n.string_to_raw (p_iv, 'AL32UTF8');
+   l_dec_val :=
+      dbms_crypto.decrypt (
+         src      => l_in,
+         KEY      => l_key,
+         iv       => l_iv,
+         typ      =>   l_enc_algo
+                     + dbms_crypto.chain_cbc
+                     + dbms_crypto.pad_pkcs5
+      );
+   l_ret := utl_i18n.raw_to_char (l_dec_val, 'AL32UTF8');
+   RETURN l_ret;
+END;
+/
+
+SELECT get_enc_val ('Test','1234567890123456','Salt') 
+FROM dual;
+
+SELECT get_dec_val ('124314C068287BCC2740517E8E48C97A','1234567890123456','Sale') 
+FROM dual;
+
+DECLARE
+   l_bitxor_val   RAW (2000);
+   l_val_1        VARCHAR2 (2000) := '12345678';
+   l_val_2        VARCHAR2 (2000) := '87654321';
+BEGIN
+   l_bitxor_val :=
+      UTL_RAW.bit_xor (
+         utl_i18n.string_to_raw (l_val_1, 'AL32UTF8'),
+         utl_i18n.string_to_raw (l_val_2, 'AL32UTF8')
+      );
+   DBMS_OUTPUT.put_line (
+      'Raw Val_1:     ' ||
+      RAWTOHEX (utl_i18n.string_to_raw (l_val_1,'AL32UTF8'))
+   );
+   DBMS_OUTPUT.put_line (
+      'Raw Val_2:     ' ||
+      RAWTOHEX (utl_i18n.string_to_raw (l_val_2,'AL32UTF8'))
+   );
+   DBMS_OUTPUT.put_line ('After bit XOR: ' || RAWTOHEX (l_bitxor_val));
+END;
+/
+
+REM
+REM Define a variable to hold the encrypted value
+VARIABLE enc_val varchar2(2000);
+DECLARE
+   l_key          VARCHAR2 (2000) := '1234567890123456';
+   l_key_modifier   VARCHAR2 (2000) := '&key_modifier';
+   l_in_val       VARCHAR2 (2000) := 'Confidential Data';
+   l_mod          NUMBER
+      :=   DBMS_CRYPTO.encrypt_aes128
+         + DBMS_CRYPTO.chain_cbc
+         + DBMS_CRYPTO.pad_pkcs5;
+   l_enc          RAW (2000);
+   l_enc_key      RAW (2000);
+BEGIN
+   l_enc_key :=
+      UTL_RAW.bit_xor (utl_i18n.string_to_raw (l_key, 'AL32UTF8'),
+                       utl_i18n.string_to_raw (l_key_modifier, 'AL32UTF8')
+                      );
+   l_enc :=
+      DBMS_CRYPTO.encrypt (utl_i18n.string_to_raw (l_in_val, 'AL32UTF8'),
+                           l_mod,
+                           l_enc_key
+                          );
+   DBMS_OUTPUT.put_line ('Encrypted=' || l_enc);
+   :enc_val := RAWTOHEX (l_enc);
+END;
+/
+DECLARE
+   l_key          VARCHAR2 (2000) := '1234567890123456';
+   l_key_modifier   VARCHAR2 (2000) := '&key_modifier';
+   l_in_val       RAW (2000)      := HEXTORAW (:enc_val);
+   l_mod          NUMBER
+      :=   DBMS_CRYPTO.encrypt_aes128
+         + DBMS_CRYPTO.chain_cbc
+         + DBMS_CRYPTO.pad_pkcs5;
+   l_dec          RAW (2000);
+   l_enc_key      RAW (2000);
+BEGIN
+   l_enc_key :=
+      UTL_RAW.bit_xor (utl_i18n.string_to_raw (l_key, 'AL32UTF8'),
+                       utl_i18n.string_to_raw (l_key_modifier, 'AL32UTF8')
+                      );
+   l_dec := DBMS_CRYPTO.decrypt (l_in_val, l_mod, l_enc_key);
+   DBMS_OUTPUT.put_line ('Decrypted=' || utl_i18n.raw_to_char (l_dec));
+END;
+/
+
+CREATE OR REPLACE VIEW vw_accounts
+AS
+SELECT account_no,
+       enc_balance AS balance,
+       enc_account_name AS account_name
+FROM accounts;
+
+CREATE OR REPLACE VIEW vw_accounts
+AS
+SELECT account_no,
+       get_dec_val (balance, enc_key) AS balance,
+       get_dec_val (enc_account_name, enc_key) AS account_name
+FROM accounts;
+
+
+CREATE TABLE accounts
+  (
+    acc_no       NUMBER NOT NULL,
+    first_name   VARCHAR2(30) NOT NULL,
+    last_name    VARCHAR2(30) NOT NULL,
+    SSN          VARCHAR2(9) ENCRYPT USING 'AES128',
+    acc_type     VARCHAR2(1) NOT NULL,
+    folio_id     NUMBER ENCRYPT USING 'AES128',
+    sub_acc_type VARCHAR2(30),
+    acc_open_dt  DATE NOT NULL,
+    acc_mod_dt   DATE,
+    acc_mgr_id   NUMBER
+  )
+/
+
+
+ENCRYPTION_WALLET_LOCATION =
+  (SOURCE=
+      (METHOD=file)
+      (METHOD_DATA=
+         (DIRECTORY=/oracle_wallet)))
+
+
+ALTER system SET encryption KEY IDENTIFIED BY "abcd1234";
+
+ALTER system SET encryption wallet OPEN authenticated IDENTIFIED BY "abcd1234";
+
+ALTER system SET encryption wallet CLOSE;
+
+ALTER TABLE accounts MODIFY (ssn ENCRYPT);
+
+ALTER TABLE accounts MODIFY (ssn ENCRYPT USING 'AES128');
+
+ALTER TABLE account MODIFY (ssn DECRYPT);
+
+CREATE TABLESPACE securets1 
+   DATAFILE '+DG1/securets1_01.dbf' 
+   SIZE 10M 
+   ENCRYPTION USING 'AES128' 
+   DEFAULT STORAGE (ENCRYPT);
+
+ALTER TABLE accounts REKEY USING 'AES256';
+
+ALTER TABLE accounts MODIFY (ssn ENCRYPT NO SALT);
+
+CREATE OR REPLACE FUNCTION get_sha1_hash_val (p_in RAW)
+   RETURN RAW
+IS
+   l_hash   RAW (4000);
+BEGIN
+   l_hash := dbms_crypto.HASH (src => p_in, typ => dbms_crypto.hash_sh1);
+   RETURN l_hash;
+END;
+/
+
+CREATE OR REPLACE FUNCTION get_hash_val (
+   p_in_val      IN   VARCHAR2,
+   p_algorithm   IN   VARCHAR2 := 'SH1'
+)
+   RETURN VARCHAR2
+IS
+   l_hash_val    RAW (4000);
+   l_hash_algo   PLS_INTEGER;
+   l_in          RAW (4000);
+   l_ret         VARCHAR2 (4000);
+BEGIN
+   l_hash_algo :=
+      CASE p_algorithm
+         WHEN 'SH1'
+            THEN dbms_crypto.hash_sh1
+         WHEN 'MD4'
+            THEN dbms_crypto.hash_md4
+         WHEN 'MD5'
+            THEN dbms_crypto.hash_md5
+         WHEN 'SH256'
+            THEN dbms_crypto.hash_sh256
+         WHEN 'SH384'
+            THEN dbms_crypto.hash_sh384
+         WHEN 'SH512'
+            THEN dbms_crypto.hash_sh512
+      END;
+   l_in := utl_i18n.string_to_raw (p_in_val, 'AL32UTF8');
+   l_hash_val := dbms_crypto.HASH (src => l_in, typ => l_hash_algo);
+   l_ret := rawtohex(l_hash_val);
+   RETURN l_ret;
+END;
+/
+
+BEGIN
+        dbms_output.put_line('MD5  ='||get_hash_val ('Test Data','MD5')); 
+        dbms_output.put_line('SH1  ='||get_hash_val ('Test Data','SH1')); 
+        dbms_output.put_line('SH256='||get_hash_val ('Test Data','SH256')); 
+        dbms_output.put_line('SH384='||get_hash_val ('Test Data','SH384')); 
+        dbms_output.put_line('SH512='||get_hash_val ('Test Data','SH512')); 
+END;
+/
+
+DECLARE
+   l_data   VARCHAR2 (200);
+BEGIN
+   l_data := 'Social Security Number = 123-45-6789';
+   DBMS_OUTPUT.put_line ('Hashed = ' || get_hash_val (l_data));
+   --
+   -- someone manipulated the data and changed it
+   --
+   l_data := 'Social Security Number = 023-45-6789';
+   DBMS_OUTPUT.put_line ('Hashed = ' || get_hash_val (l_data));
+END;
+/
+
+CREATE OR REPLACE FUNCTION get_sha1_mac_val (
+   p_in RAW, 
+   p_key RAW
+)
+   RETURN RAW
+IS
+   l_mac   RAW (4000);
+BEGIN
+   l_mac :=
+      dbms_crypto.mac (
+         src => p_in, 
+         typ => dbms_crypto.hmac_sh1,
+         KEY => p_key);
+   RETURN l_mac;
+END;
+/
+
+CREATE OR REPLACE FUNCTION get_mac_val (
+   p_in_val      IN   VARCHAR2,
+   p_key         IN   VARCHAR2,
+   p_algorithm   IN   VARCHAR2 := 'SH1'
+)
+   RETURN VARCHAR2
+IS
+   l_mac_val    RAW (4000);
+   l_key        RAW (4000);
+   l_mac_algo   PLS_INTEGER;
+   l_in         RAW (4000);
+   l_ret        VARCHAR2 (4000);
+BEGIN
+   l_mac_algo :=
+      CASE p_algorithm
+         WHEN 'SH1'
+            THEN dbms_crypto.hmac_sh1
+         WHEN 'MD5'
+            THEN dbms_crypto.hmac_md5
+         WHEN 'SH256'
+            THEN dbms_crypto.hmac_sh256
+         WHEN 'SH384'
+            THEN dbms_crypto.hmac_sh384
+         WHEN 'SH512'
+            THEN dbms_crypto.hmac_sh512
+      END;
+   l_in := utl_i18n.string_to_raw (p_in_val, 'AL32UTF8');
+   l_key := utl_i18n.string_to_raw (p_key, 'AL32UTF8');
+   l_mac_val := dbms_crypto.mac (src => l_in, typ => l_mac_algo, key=>l_key);
+   l_ret := RAWTOHEX (l_mac_val);
+   RETURN l_ret;
+END;
+/
+
+BEGIN
+   dbms_output.put_line('MD5  ='||get_mac_val ('Test Data','Key','MD5'));
+   dbms_output.put_line('SH1  ='||get_mac_val ('Test Data','Key','SH1'));
+   dbms_output.put_line('SH256='||get_mac_val ('Test Data','Key','SH256'));
+   dbms_output.put_line('SH384='||get_mac_val ('Test Data','Key','SH384'));
+   dbms_output.put_line('SH512='||get_mac_val ('Test Data','Key','SH512'));
+END;
+/
+
+UPDATE accounts
+   SET ssn_mac = get_mac_val (ssn, 'Humpty Dumpty Fell Off the Wall')
+ WHERE account_no = account_no;
+
+create table customers
+(
+   cust_id         number not null primary key,
+   cc              varchar2(128) not null
+);
+create table cc_master
+(
+   cc_hash         raw(32) not null primary key,
+   enc_cc          varchar2(128) not null
+);
+create table cc_keys
+(
+   cc_hash         raw(32) not null primary key,
+   enc_key         varchar2(128) not null
+);
+
+create index in_cust_cc on customers (cc);
+
+CREATE OR REPLACE TRIGGER tr_aiu_customers
+   BEFORE INSERT OR UPDATE
+   ON customers
+   FOR EACH ROW
+DECLARE
+   l_hash   VARCHAR2 (64);
+   l_enc    RAW (2000);
+   l_key    RAW (2000);
+BEGIN
+   l_hash := get_hash_val (:NEW.cc);
+   BEGIN
+      SELECT enc_cc
+        INTO l_enc
+        FROM cc_master
+       WHERE cc_hash = l_hash;
+   EXCEPTION
+      WHEN NO_DATA_FOUND
+      THEN
+         BEGIN
+            l_key := get_key (8);
+            l_enc := get_enc_val (:NEW.cc, l_key);
+             INSERT INTO cc_master
+                        (cc_hash, enc_cc)
+                 VALUES (l_hash, l_enc);
+            INSERT INTO cc_keys
+                        (cc_hash, enc_key)
+                 VALUES (l_hash, l_key);
+         END;
+      WHEN OTHERS THEN
+         RAISE;
+   END;
+   :NEW.cc := l_hash;
+END;
+/
+
+insert into customers values (1,'1234567890123456');
+
+select * from cc_master;
+
+select * from cc_keys;
+
+select cust_id,
+      get_dec_val
+      (m.enc_cc,k.ENC_KEY) as cc
+from customers c, cc_master m, cc_keys k
+where c.cc = m.cc_hash
+and k.cc_hash = m.cc_hash;
+
+create or replace view vw_customers
+as
+select cust_id,
+   cast (
+      get_dec_val
+     (m.enc_cc,k.ENC_KEY)
+   as varchar2(16)) as cc
+from customers c, cc_master m, cc_keys k
+where c.cc = m.cc_hash
+and k.cc_hash = m.cc_hash;
+
+
+select * from vw_customers;
+
+conn scott/tiger
+grant select, insert, delete, update on vw_customers to hr;
+
+CREATE OR REPLACE TRIGGER tr_io_iud_vw_cust 
+  INSTEAD OF
+  INSERT OR
+  UPDATE OR
+  DELETE ON vw_customers
+BEGIN
+  IF (INSERTING) THEN
+  INSERT
+  INTO customers VALUES
+    (
+      :new.cust_id,
+      :new.cc
+    );
+elsif (DELETING) THEN
+  DELETE customers WHERE cust_id = :old.cust_id;
+elsif (UPDATING) THEN
+  UPDATE customers
+  SET cc = :new.cc
+  WHERE cust_id = :new.cust_id;
+ELSE
+  NULL;
+END IF;
+END;
+/
+
+conn hr/hr
+create synonym customers for scott.vw_customers;
+
+select * from customers;
+
+insert into customers values (2,'2345678901234567');
+
+update customers set cc = '3456789012345678' where cust_id = 2;
+
+delete customers where cust_id = 2;
+
+select * from scott.customers;
+
+set autot on explain stat
+select cust_id from customers where cc = get_hash_val ('1234567890123456');
+
+select cust_id from vw_customers where cc = '1234567890123456';

@@ -1,0 +1,18 @@
+—-
+—- Real World SQL and PL/SQL from the Experts
+—-    Published by : McGraw-Hill / Oracle Press
+—-
+—- Chapter 12 - Sample Code Listing
+—-
+
+—- Classification Example 1
+SELECT cust_id, affinity_card,          PREDICTION( FOR to_char(affinity_card) USING *) OVER ()                                                        pred_affinity_card           FROM mining_data_build_v;-— Classification Example 2 - Using Partition clause
+SELECT cust_id, affinity_card,          PREDICTION( FOR to_char(affinity_card) USING *) OVER                       (PARTITION BY "COUNTRY_NAME") pred_affinity_card           FROM mining_data_build_v;—- Classification Example 3
+SELECT cust_id, affinity_card,           PREDICTION( FOR to_char(affinity_card) USING *) OVER                  (PARTITION BY "COUNTRY_NAME", "CUST_GENDER") pred_affinity_card,          PREDICTION_PROBABILITY( FOR to_char(affinity_card) USING *) OVER                  (PARTITION BY "COUNTRY_NAME", "CUST_GENDER") prod_affinity_card   
+FROM mining_data_build_v;—- Regression Example 1
+column customer_id format a20SELECT customer_id,         ltv,       PREDICTION( FOR ltv USING *) OVER ( ) pred_ltv FROM   insur_cust_ltv_sampleORDER BY customer_id;—- Regression Example 2 - Using Partition clause
+SELECT customer_id,           ltv,         PREDICTION( FOR ltv USING *)                     OVER ( PARTITION BY STATE, SEX ) pred_ltv FROM   insur_cust_ltv_sample;—- Regression Example 3
+SELECT customer_id,        ltv,       PREDICTION( FOR ltv USING *)                      OVER ( PARTITION BY STATE, SEX ) pred_ltv,       PREDICTION_DETAILS( FOR ltv USING *)                      OVER ( PARTITION BY STATE, SEX ) details_ltv FROM   insur_cust_ltv_sample;—- Anomaly Detection Example 1
+SELECT policynumber,       PREDICTION( OF ANOMALY USING *) OVER ()  ANOMALY_PRED FROM   claims;—- Anomaly Detection Example 2
+column ANOMALY_DETAILS format a30SELECT policynumber,        PREDICTION( OF ANOMALY USING *) OVER ()  ANOMALY_PRED,        PREDICTION_PROBABILITY( OF ANOMALY USING *) OVER ()  ANOMALY_PROB,        PREDICTION_DETAILS( OF ANOMALY USING *) OVER ()  ANOMALY_DETAILS FROM   claims ORDER BY policynumber;—- Anomaly Detection Example 3SELECT policynumber,       PREDICTION( OF ANOMALY USING *)                OVER ( PARTITION BY VEHICLECATEGORY )  ANOMALY_PRED,              PREDICTION_PROBABILITY( OF ANOMALY USING *)                OVER ( PARTITION BY VEHICLECATEGORY )  ANOMALY_PROB,               PREDICTION_DETAILS( OF ANOMALY USING *)                OVER ( PARTITION BY VEHICLECATEGORY )  ANOMALY_DETAILS FROM   claims ORDER BY policynumber; —- Clustering Example 1
+SELECT cust_id,        CLUSTER_ID( INTO 10 USING *) OVER ()  CLUS_ID,        CLUSTER_PROBABILITY( INTO 10 USING *) OVER ()  CLUS_PROB,                 CLUSTER_DETAILS( INTO 10 USING *) OVER ()      CLUS_DETAILS,                            cast(CLUSTER_SET( INTO 10 USING *) OVER () AS ODMR_CLUSTER_SET_NUMPD) CLUS_SET FROM   mining_data_build_v; 

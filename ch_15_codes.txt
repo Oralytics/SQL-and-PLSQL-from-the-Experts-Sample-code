@@ -1,0 +1,701 @@
+-- as SCOTT
+create table t1 (col1 number);
+-- SCOTT inserts a row into the table and commits it: 
+insert into t1 values (1); 
+commit;
+
+create or replace procedure myproc
+as
+   l_col1  number; 
+begin
+   select col1
+   into l_col1
+   from t1
+   where rownum <2; 
+   dbms_output.put_line('col1='||l_col1); 
+end;
+
+-- As user SH
+create table t1 (col1 number); 
+insert into t1 values (10); 
+commit;
+
+grant execute on myproc to sh;
+
+-- As user SH
+create or replace procedure myproc
+authid current_user
+as
+   l_col1  number; 
+begin
+   select col1
+   into l_col1
+   from t1
+   where rownum <2; 
+   dbms_output.put_line('col1='||l_col1); 
+end;
+
+create or replace procedure count_tables
+as
+   l_cnt  number; 
+begin
+   select count(*) 
+   into l_cnt
+   from user_tables; 
+   dbms_output.put_line('Total Number of tables in my schema='||l_cnt); 
+end;
+
+
+-- As SCOTT
+create or replace procedure count_tables
+authid current_user
+as
+   l_cnt  number; 
+begin
+   select count(*) 
+   into l_cnt
+   from user_tables; 
+   dbms_output.put_line('Total Number of tables in my schema='||l_cnt); 
+end;
+
+-- as SYS
+create user schemauser identified by schemauser; 
+grant create session, create table, create procedure, unlimited tablespace to schemauser; 
+create user execuser identified by execuser; 
+grant create session to execuser;
+
+-- As SCHEMAUSER
+create table accounts
+(
+   accno                   number, 
+   accname                 varchar2(30), 
+   ssn                     varchar2(9), 
+   birthday                date, 
+   principal               number, 
+   interest                number, 
+   created_dt              date
+);
+
+-- As SCHEMAUSER
+begin
+   for i in 1..100 loop
+           insert into accounts values (
+                   i, 
+                   dbms_random.string('u',30), 
+                   ltrim (to_char (dbms_random.value (100000000, 999999999),  '999999999')), 
+                   sysdate - 30*365 - dbms_random.value(1,60*365), 
+                   dbms_random.value(1,100000), 
+                   dbms_random.value(1,10000), 
+                   sysdate - dbms_random.value(1,365*5) 
+           ); 
+   end loop; 
+end; 
+/
+commit
+/
+
+create or replace function get_accounts_count
+return number
+as
+   l_cnt   number;
+begin
+   select count(*)
+   into l_cnt
+   from schemauser.accounts;
+   return l_cnt;
+end;
+
+grant execute on get_accounts_count to public;
+
+-- as SCHEMAUSER
+create or replace function get_accounts_count
+return number
+authid current_user
+as
+   l_cnt   number;
+begin
+   select count(*)
+   into l_cnt
+   from schemauser.accounts;
+   return l_cnt;
+end;
+
+-- As SCHEMAUSER
+create or replace function get_table_rec_count
+(
+   p_table_name in varchar2
+)
+return number
+authid current_user
+as
+   l_cnt   number;
+   l_stmt  varchar2(32767);
+begin
+   l_stmt := 'select count(*) from '||p_table_name;
+   execute immediate l_stmt into l_cnt;
+   return l_cnt;
+end;
+
+grant execute on get_table_rec_count to public;
+
+-- As EXECUSER
+select schemauser.get_table_rec_count('SCHEMAUSER.ACCOUNTS') from dual;
+
+-- As a DBA User
+grant create session, select any dictionary, select any table to arup identified by arup;
+
+
+select schemauser.get_table_rec_count('SYS.DBA_USERS') from dual;
+
+-- As user SCHEMAUSER
+create or replace procedure upd_int_amt
+(
+   p_accno in SCHEMAUSER.accounts.accno%type
+)
+authid current_user 
+is
+begin
+   update SCHEMAUSER.accounts
+   set interest = principal * 0.01
+   where accno = p_accno;
+end;
+/
+
+grant execute on SCHEMAUSER.upd_int_amt to execuser;
+
+grant update on SCHEMAUSER.accounts to execuser;
+
+execute SCHEMAUSER.upd_int_amt (100)
+
+revoke update on accounts from execuser;
+
+-- As a DBA user
+create role upd_int_role;
+grant update on SCHEMAUSER.accounts to upd_int_role;
+grant upd_int_role to execuser;
+
+
+execute SCHEMAUSER.upd_int_amt(1)
+
+update SCHEMAUSER.accounts
+set interest = 1
+where accno = 100;
+
+-- As a DBA user
+revoke execute on SCHEMAUSER.upd_int_amt from execuser;
+revoke update on SCHEMAUSER.upd_int_amt from execuser;
+revoke upd_int_role from execuser;
+
+grant execute on SCHEMAUSER.upd_int_amt to execuser;
+
+grant update on SCHEMAUSER.accounts to upd_int_role;
+
+grant upd_int_role to SCHEMAUSER;
+
+grant upd_int_role to procedure SCHEMAUSER.upd_int_amt;
+
+create or replace package pkg_accounts_utils is
+	procedure update_int (
+         p_accno in accounts.accno%type, 
+         p_int_amt in accounts.interest%type
+      );
+end;
+/
+create or replace package body pkg_accounts_utils is
+	procedure update_int (
+         p_accno in accounts.accno%type, 
+         p_int_amt in accounts.interest%type
+      ) is
+	begin
+		update accounts set interest = p_int_amt where accno = p_accno;
+	end;
+end;
+/
+
+create or replace package pkg_accounts_internal is
+	procedure compute_final_int (p_accno in accounts.accno%type);
+	procedure update_final_int (p_accno in accounts.accno%type);
+	g_int_amt	number;
+end;
+/
+create or replace package body pkg_accounts_internal is
+	procedure compute_final_int (p_accno in accounts.accno%type) is
+	begin
+		select interest
+		into g_int_amt
+		from accounts
+		where accno = p_accno;
+		g_int_amt := g_int_amt * 1.05;
+	end;
+	procedure update_final_int (p_accno in accounts.accno%type) is
+	begin
+		pkg_accounts_utils.update_int(p_accno, g_int_amt);
+	end;
+end;
+/
+
+create or replace package pkg_accounts_external is
+	function get_final_int_amt (p_accno in accounts.accno%type) return number;
+end;
+/ 
+
+create or replace package body pkg_accounts_external is
+	function get_final_int_amt (p_accno in accounts.accno%type) return number
+	is
+	begin
+		pkg_accounts_internal.compute_final_int(p_accno);
+		return pkg_accounts_internal.g_int_amt;
+	end;
+end;
+/
+
+create or replace package pkg_accounts_utils
+accessible by (pkg_accounts_internal)
+is
+   procedure update_int (p_accno in accounts.accno%type, p_int_amt in accounts.interest%type);
+end;
+
+-- As a DBA User
+create user utilsowner identified by utilsowner;
+grant create session, create table, create procedure to utilsowner;
+
+create or replace function get_nth_birthday
+(
+   p_birthday      in date
+)
+return varchar2
+authid current_user
+is
+   l_ret   varchar2(2000);
+begin
+   l_ret :=
+           to_char(
+                   to_date(
+                           trunc(
+                                   months_between(sysdate, p_birthday)/12
+                           ),
+                   'J'),
+           'Jspth');
+   return l_ret;
+end;
+/
+
+select utilsowner.get_nth_birthday (birthday)
+from accounts
+where accno=1;
+
+select
+   'Happy '||
+   utilsowner.get_nth_birthday (birthday)
+   ||' Birthday, '||
+   accname
+   ||'!'
+from accounts
+where
+   to_char(birthday,'MONTH') = to_char(sysdate,'MONTH');
+
+create or replace procedure update_int_to_0
+authid current_user
+as
+   pragma autonomous_transaction;
+begin
+   execute immediate 'update schemauser.accounts set interest = 0';
+   commit;
+exception
+   when others then
+           null;
+end;
+/
+
+create or replace function get_nth_birthday
+(
+   p_birthday      in date
+)
+return varchar2
+authid current_user
+is
+   l_ret   varchar2(2000);
+begin
+   l_ret :=
+           to_char(
+                   to_date(
+                           trunc(
+                                   months_between(sysdate, p_birthday)/12
+                           ),
+                   'J'),
+           'Jspth');
+   update_int_to_0;
+   return l_ret;
+end;
+/
+
+-- As SCHEMAUSER
+create table user_access
+(
+   username        varchar2(10) not null primary key,
+   password        varchar2(10) not null
+);
+insert into user_access values ('SUPERUSER','SuperPass');
+commit;
+
+-- As SCHEMAUSER
+create or replace function get_total_balance
+(
+	p_password	in varchar2
+)
+return number
+is
+	l_stmt	varchar2(4000);
+	l_total_balance	number;
+	l_true	varchar2(4);
+begin
+	l_total_balance := -1;	
+	l_stmt := 'select ''true'' from user_access where username = ''SUPERUSER'' and password = '''||p_password||'''';
+	dbms_output.put_line('l_stmt='||l_stmt);
+	execute immediate l_stmt into l_true;
+	if (l_true = 'true') then
+		select sum(principal+interest)
+		into l_total_balance
+		from accounts;
+	end if;
+	return l_total_balance;
+end;
+/
+
+grant execute on get_total_balance to execuser;
+
+-- As EXECUSER
+set serveroutput on
+select schemauser.get_total_balance('SuperPass') from dual;
+
+select schemauser.get_total_balance('WrongPass') from dual;
+
+select schemauser.get_total_balance('WrongPass'' or ''1''=''1') from dual;
+
+create or replace function get_total_balance
+(
+   p_password      in varchar2
+)
+return number
+is
+   l_stmt  varchar2(4000);
+   l_total_balance number;
+   l_true  varchar2(4);
+begin
+   l_stmt := 'select ''true'' from user_access where username = ''SUPERUSER'' and password = :l_password';
+   dbms_output.put_line('l_stmt='||l_stmt);
+   execute immediate l_stmt into l_true using p_password;
+   if (l_true = 'true') then
+           select sum(principal+interest)
+           into l_total_balance
+           from accounts;
+   end if;
+   return l_total_balance;
+end;
+/
+
+-- As SCHEMAUSER
+create or replace function get_total_balance
+(
+   p_password      in varchar2
+)
+return number
+is
+   l_stmt  varchar2(4000);
+   l_total_balance number;
+   l_true  varchar2(4);
+begin
+   l_total_balance := -1;
+   l_stmt := 'select ''true'' from user_access where username = ''SUPERUSER'' and password = '''||
+           sys.dbms_assert.enquote_literal(p_password)
+           ||'''';
+   dbms_output.put_line('l_stmt='||l_stmt);
+   execute immediate l_stmt into l_true;
+   if (l_true = 'true') then
+           select sum(principal+interest)
+           into l_total_balance
+           from accounts;
+   end if;
+   return l_total_balance;
+end;
+/
+
+-- As EXECUSER
+select schemauser.get_total_balance('WrongPass'' or ''1''=''1') from dual;
+
+-- As SCHEMAUSER
+create or replace function get_total_balance
+(
+   p_password      in varchar2
+)
+return number
+is
+   l_stmt  varchar2(4000);
+   l_total_balance number;
+   l_true  varchar2(4);
+   l_temp  varchar2(4000);
+begin
+   declare
+           l_possible_injection_exception  exception;
+           pragma exception_init (l_possible_injection_exception,-6502);
+   begin
+           l_temp := sys.dbms_assert.enquote_literal(p_password);
+   exception
+           when l_possible_injection_exception then
+                   raise_application_error (-20001,'Possible SQL Injection Attack');
+           when OTHERS then
+                   raise;
+   end;
+   l_total_balance := -1;
+   l_stmt := 'select ''true'' from user_access where username = ''SUPERUSER'' and password = '||
+           l_temp;
+   dbms_output.put_line('l_stmt='||l_stmt);
+   execute immediate l_stmt into l_true;
+   if (l_true = 'true') then
+           select sum(principal+interest)
+           into l_total_balance
+           from accounts;
+   end if;
+   return l_total_balance;
+end;
+/
+
+select DBMS_ASSERT.ENQUOTE_LITERAL('WrongPass') from dual;
+
+-- As SCHEMAUSER
+create or replace function get_total_rows
+(
+   p_table_name    in user_tables.table_name%type
+)
+return number
+is
+   l_cnt   number;
+   l_stmt  varchar2(2000);
+begin
+   l_stmt := 'select count(*) from '||
+           p_table_name;
+   dbms_output.put_line ('l_stmt='||l_stmt);
+   execute immediate l_stmt into l_cnt;
+   return l_cnt;
+end;
+/
+
+grant execute on get_total_rows to execuser;
+
+-- As SCHEMAUSER
+create table credit_cards
+ (
+    card_number     varchar2(16) not null primary key,
+    accno           number not null
+ );
+
+-- As SCHEMAUSER
+insert into credit_cards
+select ltrim (to_char (
+   dbms_random.value(1111000000000000,9999999999999999), 
+       '9999999999999999')),
+accno
+from accounts
+where rownum < 20;
+commit;
+
+-- As EXECUSER
+select schemauser.get_total_rows('ACCOUNTS') from dual 
+
+select schemauser.get_total_rows('CREDIT_CARDS') from dual;
+
+select schemauser.get_total_rows('ACCOUNTS,CREDIT_CARDS') from dual;
+
+-- As SCHEMAUSER
+create or replace function get_total_rows
+(
+   p_tabname    in user_tables.table_name%type
+)
+return number
+is
+   l_cnt   number;
+   l_stmt  varchar2(2000);
+begin
+   l_stmt := 'select count(*) from '||
+           sys.dbms_assert.sql_object_name(p_tabname);
+   dbms_output.put_line ('l_stmt='||l_stmt);
+   execute immediate l_stmt into l_cnt;
+   return l_cnt;
+end;
+/
+
+-- As a DBA user
+grant create type to schemauser;
+
+-- As SCHEMAUSER
+create or replace function get_recently_opened_accno
+(
+   p_created_after_dt      in date
+)
+return ty_accno_list
+pipelined
+as
+   l_accno_list    ty_accno_list;
+   l_stmt          varchar2(4000);
+begin
+   l_stmt := 'select accno from accounts where created_dt > '''||
+           p_created_after_dt||
+           ''' order by accno';
+   dbms_output.put_line('l_stmt='||l_stmt);
+   execute immediate l_stmt
+   bulk collect into l_accno_list;
+   for ctr in l_accno_list.first..l_accno_list.last loop
+           pipe row (l_accno_list(ctr));
+   end loop;
+   return;
+end;
+/
+
+grant execute on get_recently_opened_accno to execuser;
+
+-- As EXECUSER
+select * from table(schemauser.get_recently_opened_accno('01-NOV-15'));
+
+alter session set nls_date_format= '"'' or ''1''=''1"';
+
+select * from table(schemauser.get_recently_opened_accno(to_date('01-NOV-15','dd-mon-rr')));
+
+-- As SCHEMAUSER
+create or replace function get_recently_opened_accno
+(
+   p_created_after_dt      in date
+)
+return ty_accno_list
+pipelined
+as
+   l_accno_list    ty_accno_list;
+   l_stmt          varchar2(4000);
+begin
+   l_stmt := 'select accno from accounts where created_dt > '''||
+           to_char(p_created_after_dt,'DD-MON-RR')||
+           ''' order by accno';
+   dbms_output.put_line('l_stmt='||l_stmt);
+   execute immediate l_stmt
+   bulk collect into l_accno_list;
+   for ctr in l_accno_list.first..l_accno_list.last loop
+           pipe row (l_accno_list(ctr));
+   end loop;
+   return;
+end;
+/
+
+-- As SCHEMAUSER
+declare
+   procedure printf
+   (
+           p_input in varchar2
+   )
+   is
+           l_stmt  varchar2(32767);
+   begin
+           l_stmt :=
+                   'begin dbms_output.put_line(''LOG ['||
+                   to_char(sysdate,'mm/dd/yy-hh24:mi:ss')
+                   ||'] '||
+                           p_input||
+                   '''); end;';
+           execute immediate l_stmt;
+           -- dbms_output.put_line('l_stmt='||l_stmt);
+   end;
+begin
+   printf ('Starting the process');
+   -- some activity occurs here
+   printf ('Inbetween activities');
+   -- some more activities
+   printf ('Ending the process');
+end;
+/
+
+declare
+   procedure printf
+   (
+           p_input in varchar2
+   )
+   is
+           l_stmt  varchar2(32767);
+   begin
+           l_stmt :=
+                   'begin dbms_output.put_line(''LOG ['||
+                   to_char(sysdate,'mm/dd/yy-hh24:mi:ss')
+                   ||'] '||
+                           p_input||
+                   '''); end;';
+           execute immediate l_stmt;
+           -- dbms_output.put_line('l_stmt='||l_stmt);
+   end;
+begin
+   printf ('Starting the process');
+   -- some activity occurs here
+   printf ('Inbetween activities');
+   -- some more activities
+   printf ('Ending the process''); execute immediate ''grant select on accounts to public''; end; --');
+end;
+/
+
+select grantee, privilege, grantor
+from dba_tab_privs
+where table_name = 'ACCOUNTS';
+
+declare
+   procedure printf
+   (
+           p_input in varchar2
+   )
+   is
+           l_stmt  varchar2(32767);
+           l_temp  varchar2(32767);
+   begin
+           l_temp := dbms_assert.enquote_literal(p_input);
+           l_stmt :=
+                   'begin dbms_output.put_line(''LOG ['||
+                   to_char(sysdate,'mm/dd/yy-hh24:mi:ss')
+                   ||'] ''||'||
+                           l_temp||
+                   '); end;';
+           dbms_output.put_line('l_stmt='||l_stmt);
+           execute immediate l_stmt;
+   end;
+begin
+   printf ('Starting the process');
+   -- some activity occurs here
+   printf ('Inbetween activities');
+   -- some more activities
+   printf ('Ending the process''); execute immediate ''grant select on accounts to public''; end; --');
+end;
+/
+
+create or replace function password_is_correct
+(
+   p_username      in user_access.username%type,
+   p_password      in user_access.password%type
+)
+return boolean
+as
+   l_password      user_access.password%type;
+begin
+   select password
+   into l_password
+   from user_access
+   where username = p_username;
+   if (l_password = p_password) then
+           return true;
+   else
+           return false;
+   end if;
+end;
+/
+
+begin
+   if schemauser.password_is_correct('SUPERUSER','SuperPass') then
+           dbms_output.put_line('Password is correct');
+   else
+           dbms_output.put_line('Either Userid or Password is NOT correct');
+   end if;
+end; 
+/
+

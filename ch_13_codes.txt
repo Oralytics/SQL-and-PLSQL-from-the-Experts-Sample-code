@@ -1,0 +1,402 @@
+conn scott/tiger
+grant select on emp to hr;
+
+conn hr/hr
+SELECT deptno, empno, ename, hiredate, sal
+  FROM scott.emp;
+
+CREATE OR REPLACE FUNCTION get_num (
+   p_highval   NUMBER,
+   p_lowval    NUMBER := 0,
+   p_scale     PLS_INTEGER := 0
+)
+   RETURN NUMBER
+IS
+   l_ret   NUMBER;
+BEGIN
+   l_ret := ROUND (DBMS_RANDOM.VALUE (p_lowval, p_highval), p_scale);
+   RETURN l_ret;
+END;
+/
+
+SELECT get_num(100,200,2)
+  FROM dual;
+
+CREATE OR REPLACE FUNCTION get_num (
+   p_highval             NUMBER,
+   p_lowval              NUMBER := 0,
+   p_negatives_allowed   BOOLEAN := FALSE,
+   p_scale               PLS_INTEGER := 0
+)
+   RETURN NUMBER
+IS
+   l_ret   NUMBER;
+   l_sign   NUMBER := 1;
+BEGIN
+   IF (p_negatives_allowed)
+   THEN
+      l_sign := SIGN (DBMS_RANDOM.random);
+   END IF;
+   l_ret := l_sign * ROUND (DBMS_RANDOM.VALUE (p_lowval, p_highval), p_scale);
+   RETURN l_ret;
+END;
+/
+
+BEGIN
+   DBMS_RANDOM.initialize (239076190);
+END;
+/
+
+BEGIN
+   DBMS_RANDOM.initialize (
+      TO_NUMBER (TO_CHAR (SYSDATE, 'MMDDHHMISS')));
+END;
+/
+
+BEGIN
+   DBMS_RANDOM.seed (TO_CHAR (SYSDATE, 'mmddhhmiss'));
+END;
+/
+
+BEGIN
+   DBMS_RANDOM.terminate;
+END;
+/
+
+CREATE OR REPLACE FUNCTION get_random_string (
+   p_len    IN   NUMBER,
+   p_type   IN   VARCHAR2 := 'a'
+)
+   RETURN VARCHAR2
+AS
+   l_retval   VARCHAR2 (200);
+BEGIN
+   l_retval := DBMS_RANDOM.STRING (p_type, p_len);
+   RETURN l_retval;
+END;
+/
+
+CREATE OR REPLACE FUNCTION get_random_string (
+   p_minlen   IN   NUMBER,
+   p_maxlen   IN   NUMBER,
+   p_type     IN   VARCHAR2 := 'a'
+)
+   RETURN VARCHAR2
+AS
+   l_retval   VARCHAR2 (200);
+BEGIN
+   l_retval :=
+       DBMS_RANDOM.STRING (p_type
+                         , DBMS_RANDOM.VALUE (p_minlen, p_maxlen));
+   RETURN l_retval;
+END;
+/
+
+SELECT get_random_string(3,13,'a') FROM dual;
+
+conn scott/tiger
+REVOKE SELECT ON emp FROM HR;
+
+CREATE OR REPLACE VIEW vw_emp_redacted
+AS
+  SELECT empno,
+    CAST(get_random_string(3,10,'a') AS VARCHAR2(10)) AS ename,
+    job,
+    mgr,
+    to_date(TO_CHAR(hiredate,'DD-MON')
+    ||'-1900','dd-mon-yyyy') AS hiredate,
+    get_num(3000,1000)       AS sal,
+    comm,
+    deptno
+  FROM emp;
+
+GRANT
+SELECT,
+UPDATE,
+INSERT,
+DELETE ON vw_emp_redacted TO hr;
+
+conn hr/hr
+CREATE SYNONYM emp FOR scott.vw_emp_redacted;
+SELECT * FROM emp;
+
+conn scott/tiger
+SELECT * FROM emp;
+
+CREATE OR REPLACE TRIGGER tr_io_vw_emp_red INSTEAD OF
+  INSERT OR
+  UPDATE OR
+  DELETE ON vw_emp_redacted BEGIN IF (INSERTING) THEN
+  INSERT
+  INTO emp VALUES
+    (
+      :new.EMPNO,
+      :new.ENAME,
+      :new.JOB,
+      :new.MGR,
+      :new.HIREDATE,
+      :new.SAL,
+      :new.COMM,
+      :new.DEPTNO
+    );
+elsif (DELETING) THEN
+  DELETE emp WHERE empno = :old.empno;
+elsif (UPDATING) THEN
+  UPDATE emp
+  SET ENAME   = :new.ENAME,
+    JOB       = :new.JOB,
+    MGR       = :new.MGR,
+    HIREDATE  = :new.HIREDATE,
+    SAL       = :new.SAL,
+    COMM      = :new.COMM,
+    DEPTNO    = :new.DEPTNO
+  WHERE EMPNO = :new.EMPNO;
+ELSE
+  NULL;
+END IF;
+END;
+/
+
+SELECT sal, comm FROM emp WHERE empno = 7902;
+
+conn hr/hr
+UPDATE emp SET sal = 2250 WHERE empno = 7902;
+COMMIT;
+
+conn scott/tiger
+SELECT sal, comm FROM emp WHERE empno = 7902;
+
+conn hr/hr
+SELECT sal, comm FROM emp WHERE empno = 7902;
+
+conn scott/tiger
+DROP FUNCTION get_num
+/
+DROP FUNCTION get_random_string
+/
+DROP VIEW vw_emp_redacted
+/
+
+conn / as sysdba
+BEGIN
+   dbms_redact.add_policy (
+           object_schema      => 'SCOTT',
+           object_name        => 'EMP',
+           policy_name        => ‘Employee Mask',
+           expression         => 'SYS_CONTEXT(''USERENV'',''CURRENT_USER'')!=''SCOTT''',
+           column_name        => 'ENAME',
+           function_type      => dbms_redact.random,
+           policy_description => 'Emp Masking Policy',
+           column_description => 'Employee Name. Full Random'
+   );
+END;
+/
+
+BEGIN
+   dbms_redact.alter_policy (
+           object_schema       => 'SCOTT',
+           object_name         => 'EMP',
+           policy_name         => 'Employee Mask',
+           action              => dbms_redact.add_column,
+           column_name         => 'HIREDATE',
+           function_type       => dbms_redact.partial,
+           function_parameters => 'MDy1900'
+   );
+END;
+/
+
+BEGIN
+   dbms_redact.alter_policy (
+           object_schema   => 'SCOTT',
+           object_name     => 'EMP',
+           policy_name     => 'Employee Mask',
+           action          => dbms_redact.add_column,
+           column_name     => 'SAL',
+           function_type   => dbms_redact.random
+   );
+END;
+/
+
+conn hr/hr
+SELECT * FROM scott.emp;
+
+
+BEGIN
+   dbms_redact.alter_policy (
+           object_schema   => 'SCOTT',
+           object_name     => 'EMP',
+           policy_name     => 'Employee Mask',
+           action          => dbms_redact.modify_column,
+           column_name     => 'SAL',
+           function_type   => dbms_redact.full
+   );
+END;
+/
+
+conn hr/hr
+SELECT sal FROM scott.emp;
+
+conn scott/tiger
+CREATE TABLE accounts
+  (
+    accno         NUMBER,
+    accname       VARCHAR2(30) NOT NULL PRIMARY KEY,
+    ssn           VARCHAR2(9),
+    phone         VARCHAR2(12),
+    email         VARCHAR2(30),
+    last_trans_dt DATE
+  );
+
+insert into accounts values (123456,'Arup Nanda','123456789','203-555-1212','arup@proligence.com', to_date('10-JUL-2015 15:12:33','dd-MON-YYYY hh24:MI:SS'))
+/
+insert into accounts values (234567,'Heli Helskyaho','234567890','516-555-1212','heli.helskyaho@miracleoy.fi',to_date('11-JUL-2015 12:11:23','dd-MON-YYYY hh24:MI:SS'))
+/
+insert into accounts values (345678,'Martin Widlake','345678901','201-555-1213','mwidlake@btinternet.com',to_date('12-JUL-2015 11:21:35','dd-MON-YYYY hh24:MI:SS'))
+/
+insert into accounts values (456789,'Alex Nuijten','456789012','212-555-2134', 'alexnuijten@gmail.com',to_date('13-JUL-2015 21:15:21','dd-MON-YYYY hh24:MI:SS'))
+/
+insert into accounts values (567890,'Brendan Tierney','567890123','860-555-3138','brendan.tierney@oralytics.com',to_date('14-JUL-2015 18:34:32','dd-MON-YYYY hh24:MI:SS'))
+/
+commit
+/
+
+select * from accounts;
+
+GRANT
+SELECT,
+INSERT,
+UPDATE,
+DELETE ON accounts TO hr;
+
+BEGIN
+   dbms_redact.add_policy (
+           object_schema       => 'SCOTT',
+           object_name         => 'ACCOUNTS',
+           policy_name         => 'ACCOUNTS_Redaction',
+           expression          => 'SYS_CONTEXT(''USERENV'',''CURRENT_USER'')!=''SCOTT''',
+           column_name         => 'SSN',
+           function_type       => dbms_redact.partial,
+           function_parameters => 'VVVVVVVVV,VVVVVVVVV,*,1,5'
+   );
+END;
+/
+
+BEGIN
+    dbms_redact.alter_policy (
+       object_schema       => 'SCOTT',
+       object_name         => 'ACCOUNTS',
+       policy_name         => 'ACCOUNTS_Redaction',
+       action              => dbms_redact.add_COLUMN,
+       column_name         => 'LAST_TRANS_DT',
+       function_type       => dbms_redact.partial,
+       function_parameters => 'MDy1900'
+   );
+END;
+/
+
+BEGIN
+      dbms_redact.alter_policy (
+           object_schema       => 'SCOTT',
+           object_name         => 'ACCOUNTS',
+           policy_name         => 'ACCOUNTS_Redaction',
+           action              => dbms_redact.add_COLUMN,
+           column_name         => 'PHONE',
+           function_type       => dbms_redact.partial,
+           function_parameters => 'VVVFVVVFVVVV,VVV-VVV-VVVV,X,4,10'
+   );
+END;
+/
+
+BEGIN
+   dbms_redact.alter_policy (
+       object_schema         => 'SCOTT',
+       object_name           => 'ACCOUNTS',
+       policy_name           => 'ACCOUNTS_Redaction',
+       action                => dbms_redact.add_COLUMN,
+       column_name           => 'EMAIL',
+       function_type         => dbms_redact.regexp,
+       regexp_pattern        => dbms_redact.re_pattern_email_address,
+       regexp_replace_string => dbms_redact.re_redact_email_name,
+       regexp_position       => dbms_redact.re_beginning,
+       regexp_occurrence     => dbms_redact.re_all
+   ); 
+END;
+/
+
+BEGIN
+       dbms_redact.alter_policy (
+         object_schema => 'SCOTT',
+         object_name   => 'ACCOUNTS',
+         policy_name   => 'ACCOUNTS_Redaction',
+         action        => dbms_redact.add_COLUMN,
+         column_name   => 'ACCNAME',
+         function_type => dbms_redact.random
+    );
+END;
+/
+
+conn hr/hr
+SELECT * FROM scott.accounts;
+
+conn / as sysdba
+GRANT
+SELECT ON sys.redaction_policies TO scott;
+GRANT 
+SELECT ON sys.redaction_columns TO scott;
+
+BEGIN
+   dbms_redact.disable_policy (
+            object_schema   => 'SCOTT',
+            object_name     => 'EMP',
+            policy_name     => 'Employee Mask'
+   );
+END;
+/
+
+conn hr/hr
+SELECT ename, hiredate, sal FROM scott.emp;
+
+conn / as sysdba
+BEGIN
+   dbms_redact.enable_policy (
+            object_schema   => 'SCOTT',
+            object_name     => 'EMP',
+            policy_name     => 'Employee Mask'
+   );
+END;
+/
+
+BEGIN
+   dbms_redact.alter_policy (
+           object_schema   => 'SCOTT',
+           object_name     => 'EMP',
+           policy_name     => 'Employee Mask',
+           column_name     => 'SAL',
+           action          => dbms_redact.modify_column,
+           function_type   => dbms_redact.none
+   );
+END;
+/
+
+conn hr/hr
+SELECT ename, hiredate, sal FROM scott.emp;
+
+conn scott/tiger
+DROP TABLE accounts;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
